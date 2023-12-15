@@ -1,4 +1,10 @@
+import { NbtFile, Structure, StructureRenderer } from "deepslate";
 import { mat4, vec3 } from "gl-matrix";
+import {
+  litematicToStructure,
+  schematicToStructure,
+  spongeToStructure,
+} from "./Schematics";
 
 const document = window.document;
 
@@ -6,7 +12,7 @@ class InteractiveCanvas {
   private xRotation = 0.8;
   private yRotation = 0.5;
   private camera_pos: vec3 = vec3.fromValues(0, 0, 0);
-
+  private renderRequested = false;
   private movement = [0, 0, 0, 0, 0, 0];
   private movmentKeys = ["w", "a", "s", "d", " ", "Shift"];
 
@@ -14,6 +20,7 @@ class InteractiveCanvas {
 
   constructor(
     private canvas: HTMLCanvasElement,
+    private renderer: StructureRenderer,
     private readonly onRender: (view: mat4) => void,
     private readonly center?: [number, number, number],
     private viewDist = 4
@@ -61,56 +68,86 @@ class InteractiveCanvas {
   }
 
   public redraw() {
-    requestAnimationFrame(() => this.renderImmediately());
+    requestAnimationFrame(() => this.render());
   }
 
-  private renderImmediately() {
-    this.yRotation = this.yRotation % (Math.PI * 2);
-    this.xRotation = Math.max(
-      -Math.PI / 2,
-      Math.min(Math.PI / 2, this.xRotation)
-    );
-    this.viewDist = Math.max(1, this.viewDist);
-
-    this.view = mat4.create();
-    mat4.translate(this.view, this.view, [0, 0, -this.viewDist]);
-    mat4.rotate(this.view, this.view, this.xRotation, [1, 0, 0]);
-    mat4.rotate(this.view, this.view, this.yRotation, [0, 1, 0]);
-
-    mat4.translate(this.view, this.view, this.camera_pos);
-
-    if (this.movement.some((m) => m)) {
-      vec3.rotateY(this.camera_pos, this.camera_pos, [0, 0, 0], this.yRotation);
-      const [w, a, s, d, space, shift] = this.movement;
-      const move = vec3.fromValues(a - d, shift - space, w - s);
-      console.log(move);
-      vec3.scaleAndAdd(this.camera_pos, this.camera_pos, move, 0.04);
-      vec3.rotateY(
-        this.camera_pos,
-        this.camera_pos,
-        [0, 0, 0],
-        -this.yRotation
-      );
-      console.log(`X ROT: ${this.xRotation} Y ROT: ${this.yRotation}`);
+  render() {
+    if (this.renderRequested) {
+      return;
     }
+    const requestTime = performance.now();
+    this.renderRequested = true;
+    requestAnimationFrame((time) => {
+      const delta = Math.max(0, time - requestTime);
+      this.renderRequested = false;
+      this.resize();
 
-    if (this.center) {
-      mat4.translate(this.view, this.view, [
-        -this.center[0],
-        -this.center[1],
-        -this.center[2],
-      ]);
-    }
+      if (this.movement.some((m) => m)) {
+        vec3.rotateY(
+          this.camera_pos,
+          this.camera_pos,
+          [0, 0, 0],
+          this.yRotation
+        );
+        const [w, a, s, d, space, shift] = this.movement;
+        const move = vec3.fromValues(a - d, shift - space, w - s);
+        vec3.scaleAndAdd(this.camera_pos, this.camera_pos, move, delta * 0.02);
+        vec3.rotateY(
+          this.camera_pos,
+          this.camera_pos,
+          [0, 0, 0],
+          -this.yRotation
+        );
+        this.render();
+      }
 
-    this.onRender(this.view);
+      const viewMatrix = this.getViewMatrix();
+      this.onRender(viewMatrix);
+    });
+    this.resize();
   }
-  public resize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    if (this.canvas.width !== width || this.canvas.height !== height) {
-      this.canvas.width = width;
-      this.canvas.height = height;
+
+  private getViewMatrix() {
+    const viewMatrix = mat4.create();
+    mat4.translate(viewMatrix, viewMatrix, [0, 0, -this.viewDist]);
+    mat4.rotateX(viewMatrix, viewMatrix, this.xRotation);
+    mat4.rotateY(viewMatrix, viewMatrix, this.yRotation);
+    mat4.translate(viewMatrix, viewMatrix, this.camera_pos);
+    return viewMatrix;
+  }
+  resize() {
+    const displayWidth = this.canvas.clientWidth;
+    const displayHeight = this.canvas.clientHeight;
+    if (
+      this.canvas.width !== displayWidth ||
+      this.canvas.height !== displayHeight
+    ) {
+      this.canvas.width = displayWidth;
+      this.canvas.height = displayHeight;
+      this.renderer.setViewport(0, 0, this.canvas.width, this.canvas.height);
+      return true;
     }
+    return false;
   }
 }
-export { InteractiveCanvas };
+
+async function loadStructure(nbt: NbtFile) {
+  if (
+    nbt.root.get("BlockData")?.isByteArray() &&
+    nbt.root.hasCompound("Palette")
+  ) {
+    return spongeToStructure(nbt.root);
+  }
+  if (nbt.root.hasCompound("Regions")) {
+    return litematicToStructure(nbt.root);
+  }
+  if (
+    nbt.root.get("Blocks")?.isByteArray() &&
+    nbt.root.get("Data")?.isByteArray()
+  ) {
+    return schematicToStructure(nbt.root);
+  }
+  return Structure.fromNbt(nbt.root);
+}
+
+export { InteractiveCanvas, loadStructure };
