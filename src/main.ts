@@ -12,6 +12,8 @@ import {
   upperPowerOfTwo,
 } from "deepslate";
 
+const document = window.document;
+
 const MCMETA = "https://raw.githubusercontent.com/misode/mcmeta/";
 
 Promise.all([
@@ -115,7 +117,7 @@ Promise.all([
     resources
   );
 
-  new InteractiveCanvas(
+  let i_canvas = new InteractiveCanvas(
     structureCanvas,
     (view) => {
       structureRenderer.drawStructure(view);

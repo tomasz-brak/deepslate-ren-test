@@ -13,6 +13,7 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
+    "bulma": "^0.9.4",
     "deepslate": "^0.19.2"
   }
 }
